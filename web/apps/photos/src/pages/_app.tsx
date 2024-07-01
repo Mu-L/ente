@@ -1,19 +1,14 @@
+import { clientPackageName, staticAppTitle } from "@/next/app";
 import { CustomHead } from "@/next/components/Head";
-import { setAppNameForAuthenticatedRequests } from "@/next/http";
 import { setupI18n } from "@/next/i18n";
 import log from "@/next/log";
 import {
     logStartupBanner,
     logUnhandledErrorsAndRejections,
 } from "@/next/log-web";
-import {
-    appTitle,
-    clientPackageName,
-    type AppName,
-    type BaseAppContextT,
-} from "@/next/types/app";
 import { AppUpdate } from "@/next/types/ipc";
 import { ensure } from "@/utils/ensure";
+import type { AccountsContextT } from "@ente/accounts/types/context";
 import { Overlay } from "@ente/shared/components/Container";
 import DialogBox from "@ente/shared/components/DialogBox";
 import {
@@ -28,7 +23,11 @@ import { AppNavbar } from "@ente/shared/components/Navbar/app";
 import { PHOTOS_PAGES as PAGES } from "@ente/shared/constants/pages";
 import { useLocalState } from "@ente/shared/hooks/useLocalState";
 import HTTPService from "@ente/shared/network/HTTPService";
-import { LS_KEYS, getData } from "@ente/shared/storage/localStorage";
+import {
+    LS_KEYS,
+    getData,
+    migrateKVToken,
+} from "@ente/shared/storage/localStorage";
 import {
     getLocalMapEnabled,
     getToken,
@@ -78,10 +77,9 @@ const redirectMap = new Map([
 ]);
 
 /**
- * Properties available via the {@link AppContext} to the Photos app's React
- * tree.
+ * Properties available via {@link AppContext} to the Photos app's React tree.
  */
-type AppContextT = BaseAppContextT & {
+type AppContextT = AccountsContextT & {
     mlSearchEnabled: boolean;
     mapEnabled: boolean;
     updateMlSearchEnabled: (enabled: boolean) => Promise<void>;
@@ -109,8 +107,6 @@ export const AppContext = createContext<AppContextT | undefined>(undefined);
 export const useAppContext = () => ensure(useContext(AppContext));
 
 export default function App({ Component, pageProps }: AppProps) {
-    const appName: AppName = "photos";
-
     const router = useRouter();
     const [isI18nReady, setIsI18nReady] = useState<boolean>(false);
     const [loading, setLoading] = useState(false);
@@ -148,13 +144,11 @@ export default function App({ Component, pageProps }: AppProps) {
 
     useEffect(() => {
         void setupI18n().finally(() => setIsI18nReady(true));
-        const userId = (getData(LS_KEYS.USER) as User)?.id;
-        logStartupBanner(appName, userId);
+        const user = getData(LS_KEYS.USER) as User | undefined | null;
+        migrateKVToken(user);
+        logStartupBanner(user?.id);
+        HTTPService.setHeaders({ "X-Client-Package": clientPackageName });
         logUnhandledErrorsAndRejections(true);
-        setAppNameForAuthenticatedRequests(appName);
-        HTTPService.setHeaders({
-            "X-Client-Package": clientPackageName(appName),
-        });
         return () => logUnhandledErrorsAndRejections(false);
     }, []);
 
@@ -347,7 +341,6 @@ export default function App({ Component, pageProps }: AppProps) {
     };
 
     const appContext = {
-        appName,
         showNavBar,
         mlSearchEnabled,
         updateMlSearchEnabled,
@@ -374,7 +367,7 @@ export default function App({ Component, pageProps }: AppProps) {
 
     const title = isI18nReady
         ? t("title", { context: "photos" })
-        : appTitle[appName];
+        : staticAppTitle;
 
     return (
         <>
